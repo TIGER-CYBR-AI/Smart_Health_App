@@ -1,0 +1,293 @@
+<WindowManager>:
+    LanguageScreen:
+    QuestionsScreen:
+    DashboardScreen:
+    SecretVaultScreen:
+
+<LanguageScreen>:
+    name: 'language_screen'
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 40
+        spacing: 20
+        canvas.before:
+            Color:
+                rgba: 1, 0.89, 0.88, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+        Label:
+            text: "اختر اللغة للمتابعة\n\nChoose Language to Continue"
+            font_size: '20sp'
+            color: 0.82, 0.41, 0.11, 1
+            halign: 'center'
+        MDRaisedButton:
+            text: "العربية"
+            pos_hint: {'center_x': 0.5}
+            size_hint_x: 0.6
+            md_bg_color: 1, 0.41, 0.71, 1
+            on_release: root.select_lang(1)
+        MDRaisedButton:
+            text: "English"
+            pos_hint: {'center_x': 0.5}
+            size_hint_x: 0.6
+            md_bg_color: 1, 0.41, 0.71, 1
+            on_release: root.select_lang(2)
+
+<QuestionsScreen>:
+    name: 'questions_screen'
+    ScrollView:
+        BoxLayout:
+            orientation: 'vertical'
+            padding: 20
+            spacing: 10
+            size_hint_y: None
+            height: self.minimum_height
+            canvas.before:
+                Color:
+                    rgba: 1, 0.89, 0.88, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+            
+            Label:
+                id: title
+                text: ""
+                font_size: '22sp'
+                bold: True
+                color: 0.82, 0.41, 0.11, 1
+                size_hint_y: None
+                height: 50
+
+            Label:
+                id: lbl_name
+                text: ""
+                color: 0,0,0,1
+                size_hint_y: None
+                height: 30
+            TextInput:
+                id: txt_name
+                multiline: False
+                size_hint_y: None
+                height: 40
+
+            Label:
+                id: lbl_cycle
+                text: ""
+                color: 0,0,0,1
+                size_hint_y: None
+                height: 30
+            TextInput:
+                id: txt_cycle
+                multiline: False
+                size_hint_y: None
+                height: 40
+
+            Label:
+                id: lbl_weight
+                text: ""
+                color: 0,0,0,1
+                size_hint_y: None
+                height: 30
+            TextInput:
+                id: txt_weight
+                multiline: False
+                size_hint_y: None
+                height: 40
+
+            Label:
+                id: lbl_height
+                text: ""
+                color: 0,0,0,1
+                size_hint_y: None
+                height: 30
+            TextInput:
+                id: txt_height
+                multiline: False
+                size_hint_y: None
+                height: 40
+
+            Label:
+                id: lbl_pass
+                text: ""
+                color: 0,0,0,1
+                size_hint_y: None
+                height: 30
+            TextInput:
+                id: txt_pass
+                password: True
+                multiline: False
+                size_hint_y: None
+                height: 40
+
+            Label:
+                id: lbl_date
+                text: ""
+                color: 0,0,0,1
+                size_hint_y: None
+                height: 30
+            TextInput:
+                id: txt_date
+                multiline: False
+                size_hint_y: None
+                height: 40
+
+            MDFillRoundFlatButton:
+                id: btn_submit
+                text: ""
+                pos_hint: {'center_x': 0.5}
+                md_bg_color: 1, 0.41, 0.71, 1
+                on_release: root.process_data()
+                size_hint_y: None
+                height: 50
+
+<DashboardScreen>:
+    name: 'dashboard_screen'
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 20
+        spacing: 15
+        canvas.before:
+            Color:
+                rgba: 1, 0.89, 0.88, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+        
+        Label:
+            id: lbl_profile
+            text: ""
+            font_size: '20sp'
+            bold: True
+            color: 1, 0.08, 0.57, 1
+            size_hint_y: None
+            height: 40
+
+        GridLayout:
+            cols: 2
+            spacing: 15
+            size_hint_y: None
+            height: 150
+            
+            BoxLayout:
+                orientation: 'vertical'
+                padding: 10
+                canvas.before:
+                    Color:
+                        rgba: 1, 1, 1, 1
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [15,]
+                Label:
+                    id: period_num
+                    text: ""
+                    font_size: '32sp'
+                    bold: True
+                    color: 1, 0.08, 0.57, 1
+                Label:
+                    id: period_txt
+                    text: ""
+                    color: 0,0,0,1
+                    font_size: '12sp'
+                    
+            BoxLayout:
+                orientation: 'vertical'
+                padding: 10
+                canvas.before:
+                    Color:
+                        rgba: 1, 1, 1, 1
+                    RoundedRectangle:
+                        pos: self.pos
+                        size: self.size
+                        radius: [15,]
+                Label:
+                    id: ovulation_num
+                    text: ""
+                    font_size: '32sp'
+                    bold: True
+                    color: 0.25, 0.41, 0.88, 1
+                Label:
+                    id: ovulation_txt
+                    text: ""
+                    color: 0,0,0,1
+                    font_size: '12sp'
+
+        BoxLayout:
+            orientation: 'vertical'
+            spacing: 10
+            MDFillRoundFlatButton:
+                text: "[ ملف المستلزمات الطبية ]"
+                pos_hint: {'center_x': 0.5}
+                size_hint_x: 0.8
+                md_bg_color: 1, 1, 1, 1
+                text_color: 1, 0.41, 0.71, 1
+                on_release: root.open_kit()
+            MDFillRoundFlatButton:
+                text: "[ الملف السري المقفل ]"
+                pos_hint: {'center_x': 0.5}
+                size_hint_x: 0.8
+                md_bg_color: 0.29, 0, 0.51, 1
+                text_color: 1, 1, 1, 1
+                on_release: root.open_secret()
+
+        BoxLayout:
+            size_hint_y: None
+            height: 50
+            canvas.before:
+                Color:
+                    rgba: 1, 1, 1, 1
+                Rectangle:
+                    pos: self.pos
+                    size: self.size
+            Label:
+                text: "[ مساحة إعلانية للربح المادي | Sponsored Ad ]"
+                color: 0.5, 0.5, 0.5, 1
+                font_size: '12sp'
+                halign: 'center'
+
+<SecretVaultScreen>:
+    name: 'secret_vault_screen'
+    BoxLayout:
+        orientation: 'vertical'
+        padding: 20
+        spacing: 10
+        canvas.before:
+            Color:
+                rgba: 1, 0.89, 0.88, 1
+            Rectangle:
+                pos: self.pos
+                size: self.size
+        Label:
+            text: "الخزنة الشخصية السرية المقفلة"
+            font_size: '18sp'
+            bold: True
+            color: 0.29, 0, 0.51, 1
+        TextInput:
+            id: vault_pass
+            hint_text: "ادخلي كلمة السر لفتح الملف"
+            password: True
+            multiline: False
+            size_hint_y: None
+            height: 45
+        MDRaisedButton:
+            text: "فتح الخزنة ومطابقة الأمان"
+            pos_hint: {'center_x': 0.5}
+            md_bg_color: 1, 0.08, 0.57, 1
+            on_release: root.check_password()
+        Label:
+            id: lbl_vault_status
+            text: "الخزنة مقفلة حالياً"
+            color: 0,0,0,1
+        BoxLayout:
+            id: secret_content
+            opacity: 0
+            orientation: 'vertical'
+            Label:
+                text: "مذكراتك المحمية وصورك الشخصية آمنة هنا..."
+                color: 0,0,0,1
+        Button:
+            text: "Back"
+            size_hint_y: None
+            height: 40
+            on_release: root.manager.current = 'dashboard_screen'
