@@ -1,33 +1,29 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function App() {
-  const [screen, setScreen] = useState('Language');
+  const [screen, setScreen] = useState('Loading');
   const [selectedLang, setSelectedLang] = useState('ar');
 
-  // حقول الاستبيان الطبي فارغة تماماً وجاهزة لإدخال المستخدمة من الصفر 🌸
   const [userName, setUserName] = useState('');
   const [userAge, setUserAge] = useState('');
 
-  // تاريخ آخر موعد للمحيض مقسم لثلاث خانات فارغة: سنة / شهر / يوم
   const [periodYear, setPeriodYear] = useState('');
   const [periodMonth, setPeriodMonth] = useState('');
   const [periodDay, setPeriodDay] = useState('');
 
-  const [periodDuration, setPeriodDuration] = useState(''); // عدد أيام نزول الدم
-  const [cycleLength, setCycleLength] = useState(''); // كم يوم من المحيض للمحيض
+  const [periodDuration, setPeriodDuration] = useState('');
+  const [cycleLength, setCycleLength] = useState('');
 
-  // 🩺 بيانات الحالة الصحية العامة (شاشة جديدة بعد اختيار اللغة)
   const [generalWeight, setGeneralWeight] = useState('');
   const [generalHeight, setGeneralHeight] = useState('');
   const [chronicConditions, setChronicConditions] = useState('');
   const [allergies, setAllergies] = useState('');
-  const [pregnancyStatus, setPregnancyStatus] = useState(''); // 'none' | 'pregnant' | 'breastfeeding' | 'trying'
+  const [pregnancyStatus, setPregnancyStatus] = useState('');
 
-  // 🔑 مفتاح Groq API الخاص بكِ (مجاني ومفتوح المصدر، بدون قيود جغرافية)
   const GROQ_API_KEY = 
 
-  // نتائج الحسابات الطبية
   const [calculatedData, setCalculatedData] = useState({
     daysRemaining: 0,
     nextPeriodDate: '',
@@ -35,7 +31,6 @@ export default function App() {
     statusText: ''
   });
 
-  // محادثة الذكاء الاصطناعي والتحميل
   const [chatInput, setChatInput] = useState('');
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [chatMessages, setChatMessages] = useState([
@@ -45,6 +40,47 @@ export default function App() {
   const [vaultPassword, setVaultPassword] = useState('');
   const [inputPassword, setInputPassword] = useState('');
   const [isPasswordSet, setIsPasswordSet] = useState(false);
+
+  // 🌸 عند فتح التطبيق: التحقق من وجود بيانات محفوظة مسبقاً
+  useEffect(() => {
+    checkSavedData();
+  }, []);
+
+  const checkSavedData = async () => {
+    try {
+      const savedData = await AsyncStorage.getItem('userMedicalData');
+      if (savedData) {
+        const parsed = JSON.parse(savedData);
+        setUserName(parsed.userName || '');
+        setUserAge(parsed.userAge || '');
+        setPeriodYear(parsed.periodYear || '');
+        setPeriodMonth(parsed.periodMonth || '');
+        setPeriodDay(parsed.periodDay || '');
+        setPeriodDuration(parsed.periodDuration || '');
+        setCycleLength(parsed.cycleLength || '');
+        setGeneralWeight(parsed.generalWeight || '');
+        setGeneralHeight(parsed.generalHeight || '');
+        setChronicConditions(parsed.chronicConditions || '');
+        setAllergies(parsed.allergies || '');
+        setPregnancyStatus(parsed.pregnancyStatus || '');
+        setCalculatedData(parsed.calculatedData || calculatedData);
+        setScreen('Dashboard');
+      } else {
+        setScreen('Language');
+      }
+    } catch (error) {
+      console.error('خطأ بقراءة البيانات المحفوظة:', error);
+      setScreen('Language');
+    }
+  };
+
+  const saveDataToStorage = async (dataToSave) => {
+    try {
+      await AsyncStorage.setItem('userMedicalData', JSON.stringify(dataToSave));
+    } catch (error) {
+      console.error('خطأ بحفظ البيانات:', error);
+    }
+  };
 
   const handleLanguageSelect = (lang) => {
     setSelectedLang(lang);
@@ -59,7 +95,6 @@ export default function App() {
     setScreen('Registration');
   };
 
-  // 🧪 نظام الإشعارات من أعلى الهاتف
   const triggerMedicalNotifications = (daysLeft) => {
     if (daysLeft === 3) {
       Alert.alert("🔔 إشعار من طبيب المرأة", "عزيزتي الأميرة، يرجى الاستعداد.. متبقي 3 أيام فقط على بدء فترة الطمث 🌸");
@@ -82,7 +117,6 @@ export default function App() {
     Alert.alert("🌸 الحمد لله على السلامة", msg);
   };
 
-  // الدالة الحسابية الطبية
   const calculateMedicalCycle = () => {
     if (
       !userName.trim() || !userAge.trim() ||
@@ -112,7 +146,7 @@ export default function App() {
     const ovulation = new Date(nextPeriod);
     ovulation.setDate(nextPeriod.getDate() - 14);
 
-    const today = new Date('2026-08-21');
+    const today = new Date();
     const timeDiff = nextPeriod.getTime() - today.getTime();
     const daysLeft = Math.ceil(timeDiff / (1000 * 3600 * 24));
 
@@ -126,11 +160,22 @@ export default function App() {
       status = 'أعلى معدل لخصوبة التبويض 🥚';
     }
 
-    setCalculatedData({
+    const newCalculatedData = {
       daysRemaining: daysLeft > 0 ? daysLeft : 0,
       nextPeriodDate: nextPeriod.toISOString().split('T')[0],
       ovulationDate: ovulation.toISOString().split('T')[0],
       statusText: status
+    };
+
+    setCalculatedData(newCalculatedData);
+
+    // 💾 حفظ كل البيانات بشكل دائم على الجهاز
+    saveDataToStorage({
+      userName, userAge,
+      periodYear, periodMonth, periodDay,
+      periodDuration, cycleLength,
+      generalWeight, generalHeight, chronicConditions, allergies, pregnancyStatus,
+      calculatedData: newCalculatedData
     });
 
     setScreen('Dashboard');
@@ -140,7 +185,6 @@ export default function App() {
     }, 1500);
   };
 
-  // 🧠 دالة الاتصال الحقيقية بـ Groq API (نموذج Llama مفتوح المصدر - مجاني وبدون قيود جغرافية)
   const handleSendMessage = async () => {
     if (!chatInput.trim()) return;
 
@@ -180,7 +224,6 @@ export default function App() {
       });
 
       const data = await response.json();
-
       const aiText = data?.choices?.[0]?.message?.content;
 
       if (aiText) {
@@ -219,7 +262,15 @@ export default function App() {
     }
   };
 
-  // --- 1. شاشة اختيار اللغة ---
+  // --- 0. شاشة تحميل مؤقتة أثناء فحص البيانات المحفوظة ---
+  if (screen === 'Loading') {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator size="large" color="#FF6B8B" />
+      </View>
+    );
+  }
+
   if (screen === 'Language') {
     return (
       <View style={styles.container}>
@@ -240,7 +291,6 @@ export default function App() {
     );
   }
 
-  // --- 2. شاشة الحالة الصحية العامة (جديدة) ---
   if (screen === 'GeneralHealth') {
     return (
       <ScrollView contentContainerStyle={styles.scrollContainer}>
@@ -299,7 +349,6 @@ export default function App() {
     );
   }
 
-  // --- 3. شاشة الاستبيان الطبي (فارغة بالكامل) ---
   if (screen === 'Registration') {
     return (
       <ScrollView contentContainerStyle={styles.scrollContainer}>
@@ -367,7 +416,6 @@ export default function App() {
     );
   }
 
-  // --- 3. لوحة التحكم الحقيقية المربوطة بالمعادلة الطبية ---
   if (screen === 'Dashboard') {
     return (
       <ScrollView contentContainerStyle={styles.scrollContainer}>
@@ -411,7 +459,6 @@ export default function App() {
         </TouchableOpacity>
 
         <View style={styles.gridContainer}>
-          {/* كرت الملف السري الخزنة المحمي بكلمة سر */}
           <TouchableOpacity style={styles.fileContainer} onPress={() => setScreen('VaultLock')}>
             <View style={styles.realFileTab} />
             <View style={styles.realFileBody}>
@@ -422,7 +469,6 @@ export default function App() {
             </View>
           </TouchableOpacity>
 
-          {/* كرت ملف المستلزمات الطبية والغذائية الذكي */}
           <TouchableOpacity style={styles.fileContainer} onPress={() => setScreen('AiChat')}>
             <View style={styles.realFileTab} />
             <View style={styles.realFileBody}>
@@ -437,7 +483,6 @@ export default function App() {
     );
   }
 
-  // --- 4. شاشة شات طبيب الذكاء الاصطناعي الحقيقي عبر الإنترنت ---
   if (screen === 'AiChat') {
     return (
       <View style={styles.chatContainer}>
@@ -473,7 +518,6 @@ export default function App() {
     );
   }
 
-  // --- 5. شاشة قفل الملف السري (الخزنة بكلمة مرور) ---
   if (screen === 'VaultLock') {
     return (
       <View style={styles.container}>
@@ -491,7 +535,6 @@ export default function App() {
     );
   }
 
-  // --- 6. شاشة محتوى الخزنة السرية المكتملة بنجاح ---
   if (screen === 'VaultContent') {
     return (
       <View style={styles.container}>
@@ -507,9 +550,8 @@ export default function App() {
       </View>
     );
   }
-} // 👈 إغلاق دالة App الرئيسية بنجاح وعزل التنسيقات
+}
 
-// 🎨 التنسيقات البصرية والجمالية الاحترافية الشاملة والمحدثة بالكامل
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF5F5', alignItems: 'center', justifyContent: 'center', padding: 20 },
   scrollContainer: { flexGrow: 1, backgroundColor: '#FFF5F5', alignItems: 'center', paddingVertical: 30, paddingHorizontal: 20 },
