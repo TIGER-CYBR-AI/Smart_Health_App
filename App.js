@@ -22,7 +22,7 @@ export default function App() {
   const [allergies, setAllergies] = useState('');
   const [pregnancyStatus, setPregnancyStatus] = useState('');
 
-  const GROQ_API_KEY = 
+  const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY;
 
   const [calculatedData, setCalculatedData] = useState({
     daysRemaining: 0,
