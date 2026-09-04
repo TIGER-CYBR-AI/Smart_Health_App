@@ -3,6 +3,7 @@
     "name": "صحتها",
     "slug": "smarthealthapp",
     "version": "1.0.0",
+    "owner": "liger313",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "android": {
