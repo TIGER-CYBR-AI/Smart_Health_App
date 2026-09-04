@@ -1,27 +1,16 @@
-name: Build APK
-on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
-      - name: Install buildozer and cython
-        run: pip install --upgrade pip && pip install buildozer cython
-      - name: Build APK with buildozer
-        run: yes | buildozer android debug
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: smarthealthapp-apk
-          path: bin/*.apk
+{
+  "name": "smart-health-app",
+  "version": "1.0.0",
+  "main": "node_modules/expo/AppEntry.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android"
+  },
+  "dependencies": {
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "expo": "~51.0.0",
+    "react": "18.2.0",
+    "react-native": "0.74.5",
+    "react-native-webview": "13.8.6"
+  }
+}
