@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert, ActivityIndicator, Modal } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { WebView } from 'react-native-webview';
 
 export default function App() {
   const [screen, setScreen] = useState('Loading');
@@ -41,10 +42,36 @@ export default function App() {
   const [inputPassword, setInputPassword] = useState('');
   const [isPasswordSet, setIsPasswordSet] = useState(false);
 
+  // 🌸 إعدادات الإعلانات
+  const INTERSTITIAL_LINK = 'https://www.profitableratecpmnetwork.com/yg9n6zwp2n?key=fc38f2fdc96be1b732242b8a32defd8b';
+  const AADS_BANNER_HTML = `
+<body style="margin:0;padding:0;background:transparent;display:flex;justify-content:center;align-items:center;height:100%;">
+<div id="frame" style="width:300px;margin:auto;height:250px">
+<iframe data-aa="2454281" src="//ad.a-ads.com/2454281/?size=300x250" style="border:0;padding:0;width:300px;height:250px;overflow:hidden;margin:auto"></iframe>
+</div>
+</body>
+`;
+  const [showInterstitial, setShowInterstitial] = useState(false);
+  const [interstitialTimer, setInterstitialTimer] = useState(5);
+
   // 🌸 عند فتح التطبيق: التحقق من وجود بيانات محفوظة مسبقاً
   useEffect(() => {
     checkSavedData();
   }, []);
+
+  useEffect(() => {
+    if (screen === 'Dashboard' && !showInterstitial) {
+      setShowInterstitial(true);
+      setInterstitialTimer(5);
+    }
+  }, [screen]);
+
+  useEffect(() => {
+    if (showInterstitial && interstitialTimer > 0) {
+      const t = setTimeout(() => setInterstitialTimer(prev => prev - 1), 1000);
+      return () => clearTimeout(t);
+    }
+  }, [showInterstitial, interstitialTimer]);
 
   const checkSavedData = async () => {
     try {
@@ -418,7 +445,23 @@ export default function App() {
 
   if (screen === 'Dashboard') {
     return (
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <View style={{flex: 1}}>
+        <Modal visible={showInterstitial} transparent={false} animationType="fade">
+          <View style={{flex: 1}}>
+            <WebView source={{ uri: INTERSTITIAL_LINK }} style={{flex: 1}} />
+            {interstitialTimer > 0 ? (
+              <View style={styles.timerBadge}>
+                <Text style={{color:'#FFF', fontWeight:'bold'}}>{interstitialTimer}</Text>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.closeAdButton} onPress={() => setShowInterstitial(false)}>
+                <Text style={{color:'#FFF', fontWeight:'bold'}}>✕ إغلاق</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </Modal>
+
+      <ScrollView contentContainerStyle={[styles.scrollContainer, {paddingBottom: 70}]}>
         <View style={styles.headerDecoration}>
           <Text style={styles.decoratorLine}>============</Text>
           <Text style={styles.princessTitle}>👑 {userName} - {userAge} Years Old 👑</Text>
@@ -480,6 +523,10 @@ export default function App() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      <View style={styles.bottomBanner}>
+        <WebView source={{ html: AADS_BANNER_HTML }} style={{flex: 1}} scrollEnabled={false} />
+      </View>
+      </View>
     );
   }
 
@@ -613,4 +660,7 @@ const styles = StyleSheet.create({
   cardIcon: { fontSize: 50, marginBottom: 15, textAlign: 'center' },
   pinInput: { width: '60%', padding: 16, backgroundColor: '#FFF', borderRadius: 12, borderWidth: 1, borderColor: '#FFE0E5', fontSize: 24, textAlign: 'center', letterSpacing: 10, marginBottom: 20, color: '#333' },
   vaultPlaceholder: { width: '95%', backgroundColor: '#FFF', borderRadius: 15, padding: 30, alignItems: 'center', marginVertical: 20, borderWidth: 1, borderColor: '#FFE0E5' },
+  timerBadge: { position: 'absolute', top: 40, right: 20, backgroundColor: '#00000099', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  closeAdButton: { position: 'absolute', top: 40, right: 20, backgroundColor: '#FF6B8B', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+  bottomBanner: { height: 60, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#FFE0E5', alignItems: 'center', justifyContent: 'center' },
 });
