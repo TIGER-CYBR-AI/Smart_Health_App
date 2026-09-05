@@ -6,8 +6,17 @@
     "owner": "liger313s-team",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFF5F5"
+    },
     "android": {
-      "package": "com.tigertechnology.smarthealthapp"
+      "package": "com.tigertechnology.smarthealthapp",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#FFF5F5"
+      }
     },
     "extra": {
       "eas": {
