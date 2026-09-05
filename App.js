@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert, ActivityIndicator, Modal, Image, FlatList } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert, ActivityIndicator, Modal, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 import * as ImagePicker from 'expo-image-picker';
+import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system';
 
 export default function App() {
   const [screen, setScreen] = useState('Loading');
@@ -26,10 +28,8 @@ export default function App() {
 
   const GROQ_API_KEY = process.env.EXPO_PUBLIC_GROQ_API_KEY;
 
-  // ==================== منطق الدورة الحي (يُحسب من التاريخ الأصلي فقط، بدون تخزين رقم ثابت) ====================
   const [cycleInfo, setCycleInfo] = useState(null);
-  // يحفظ آخر حالة تم الإشعار عنها لتفادي تكرار نفس الإشعار
-  const notifiedRef = useRef({ anchorKey: '', d3: false, d2: false, periodStart: false, periodEnd: false });
+  const [notifyFlags, setNotifyFlags] = useState({ anchorKey: '', d3: false, d2: false, periodStart: false, periodEnd: false });
 
   const computeCycleInfo = () => {
     if (!periodYear || !periodMonth || !periodDay || !cycleLength || !periodDuration) return null;
@@ -48,7 +48,6 @@ export default function App() {
     today.setHours(0, 0, 0, 0);
     const now = new Date();
 
-    // نحرّك تاريخ بداية الدورة للأمام تلقائياً لحد ما نوصل لأقرب دورة (حالية أو قادمة) - هيك العداد بيضل حي دايماً بدون ما نخزن رقم ثابت
     let periodStart = new Date(anchor);
     let periodEnd = new Date(periodStart);
     periodEnd.setDate(periodStart.getDate() + duration - 1);
@@ -61,15 +60,11 @@ export default function App() {
 
     const isPeriodNow = today >= periodStart && today <= periodEnd;
 
-    const ovulation = new Date(periodStart);
-    ovulation.setDate(periodStart.getDate() - length + duration + (length - 14));
-    // حساب أبسط وأدق للتبويض: 14 يوم قبل بداية الدورة القادمة
     const ovulationDate = new Date(periodStart);
     ovulationDate.setDate(periodStart.getDate() - 14);
 
     const msPerDay = 1000 * 3600 * 24;
 
-    // الفرق الدقيق بالوقت الفعلي (لحساب الساعات بدقة) لحد لحظة بداية الدورة (الساعة 00:00 من يوم البداية)
     const diffToStartMs = periodStart.getTime() - now.getTime();
     const daysToNextPeriod = Math.max(0, Math.ceil(diffToStartMs / msPerDay));
     const hoursToNextPeriod = Math.max(0, Math.floor((diffToStartMs % msPerDay) / (1000 * 3600)));
@@ -93,7 +88,6 @@ export default function App() {
     };
   };
 
-  // إعادة حساب كل دقيقة عشان عداد الساعات يضل حي، وعند فتح لوحة التحكم
   useEffect(() => {
     if (screen !== 'Dashboard') return;
     const update = () => setCycleInfo(computeCycleInfo());
@@ -102,28 +96,50 @@ export default function App() {
     return () => clearInterval(interval);
   }, [screen, periodYear, periodMonth, periodDay, cycleLength, periodDuration]);
 
-  // إشعارات تلقائية: قبل 3 أيام، قبل يومين، وعند بداية الدورة فعلياً (تلقائي بدون ضغط)، وعند انتهائها
+  const saveNotifyFlags = async (flags) => {
+    try {
+      await AsyncStorage.setItem('cycleNotifyFlags', JSON.stringify(flags));
+    } catch (e) {
+      console.error('خطأ بحفظ حالة الإشعارات:', e);
+    }
+  };
+
   useEffect(() => {
     if (!cycleInfo) return;
-    const flags = notifiedRef.current;
 
-    // لو تغيّرت الدورة (بدأت دورة جديدة) نصفّر كل الإشعارات
+    let flags = { ...notifyFlags };
+    let changed = false;
+
     if (flags.anchorKey !== cycleInfo.anchorKey) {
-      notifiedRef.current = { anchorKey: cycleInfo.anchorKey, d3: false, d2: false, periodStart: false, periodEnd: false };
+      flags = { anchorKey: cycleInfo.anchorKey, d3: false, d2: false, periodStart: false, periodEnd: false };
+      changed = true;
     }
 
     if (!cycleInfo.isPeriodNow) {
-      if (cycleInfo.daysToNextPeriod === 3 && !notifiedRef.current.d3) {
-        notifiedRef.current.d3 = true;
+      if (cycleInfo.daysToNextPeriod === 3 && !flags.d3) {
+        flags.d3 = true;
+        changed = true;
         Alert.alert('🔔 إشعار من طبيب المرأة', 'عزيزتي، يرجى الاستعداد.. متبقي 3 أيام فقط على بدء فترة الطمث 🌸');
       }
-      if (cycleInfo.daysToNextPeriod === 2 && !notifiedRef.current.d2) {
-        notifiedRef.current.d2 = true;
+      if (cycleInfo.daysToNextPeriod === 2 && !flags.d2) {
+        flags.d2 = true;
+        changed = true;
         Alert.alert('🔔 إشعار من طبيب المرأة', 'نذكركِ بالاستعداد البدني والنفسي، متبقي يومان فقط 🎀');
       }
-    } else if (cycleInfo.isPeriodNow && !notifiedRef.current.periodStart) {
-      notifiedRef.current.periodStart = true;
+      if (flags.periodStart && !flags.periodEnd) {
+        flags.periodEnd = true;
+        changed = true;
+        Alert.alert('🌸 الحمد لله على السلامة', 'الحمد لله على سلامة الأميرة الكيوت! طهر الله قلبك وجسدك ونوّر أيامك القادمة');
+      }
+    } else if (cycleInfo.isPeriodNow && !flags.periodStart) {
+      flags.periodStart = true;
+      changed = true;
       Alert.alert('🩸 بدأت فترة الطمث', 'حسب حساباتكِ الطبية، اليوم هو بداية موعد طمثكِ 🌸');
+    }
+
+    if (changed) {
+      setNotifyFlags(flags);
+      saveNotifyFlags(flags);
     }
   }, [cycleInfo]);
 
@@ -133,16 +149,18 @@ export default function App() {
     { sender: 'ai', text: 'أهلاً بكِ يا أميرتي 🌸 أنا طبيبكِ الافتراضي الحقيقي المتصل بالإنترنت، كيف يمكنني مساعدتكِ وطمأنتكِ اليوم؟' }
   ]);
 
-  // ==================== الخزنة: رمز سري دائم + صور + ملاحظات ====================
   const [vaultPassword, setVaultPassword] = useState('');
   const [inputPassword, setInputPassword] = useState('');
   const [isPasswordSet, setIsPasswordSet] = useState(false);
   const [vaultPhotos, setVaultPhotos] = useState([]);
   const [vaultNoteText, setVaultNoteText] = useState('');
   const [savedNotes, setSavedNotes] = useState([]);
-  const [vaultTab, setVaultTab] = useState('photos'); // 'photos' | 'notes'
+  const [vaultTab, setVaultTab] = useState('photos');
 
-  // 🌸 إعدادات الإعلانات
+  const [viewerPhotoUri, setViewerPhotoUri] = useState(null);
+  const [viewerNote, setViewerNote] = useState(null);
+  const [viewerNoteText, setViewerNoteText] = useState('');
+
   const INTERSTITIAL_LINK = 'https://www.profitableratecpmnetwork.com/yg9n6zwp2n?key=fc38f2fdc96be1b732242b8a32defd8b';
   const AADS_BANNER_HTML = `
 <!DOCTYPE html>
@@ -151,9 +169,9 @@ export default function App() {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>html,body{margin:0;padding:0;background:transparent;}</style>
 </head>
-<body style="display:flex;justify-content:center;align-items:center;height:100%;">
-<div id="frame" style="width:300px;margin:auto;height:250px">
-<iframe data-aa="2454281" src="https://ad.a-ads.com/2454281/?size=300x250" style="border:0;padding:0;width:300px;height:250px;overflow:hidden;margin:auto" scrolling="no"></iframe>
+<body>
+<div id="frame" style="width: 300px;margin: auto;z-index: 99998;height: auto">
+<iframe data-aa='2454281' src='https://ad.a-ads.com/2454281/?size=300x250' style='border:0; padding:0; width:300px; height:250px; overflow:hidden;display: block;margin: auto'></iframe>
 </div>
 </body>
 </html>
@@ -163,7 +181,6 @@ export default function App() {
   const [interstitialFailed, setInterstitialFailed] = useState(false);
   const [bannerFailed, setBannerFailed] = useState(false);
 
-  // 🌸 عند فتح التطبيق: التحقق من وجود بيانات محفوظة مسبقاً (بيانات الدورة + الخزنة معاً)
   useEffect(() => {
     checkSavedData();
   }, []);
@@ -187,6 +204,7 @@ export default function App() {
     try {
       const savedData = await AsyncStorage.getItem('userMedicalData');
       const savedVault = await AsyncStorage.getItem('vaultData');
+      const savedFlags = await AsyncStorage.getItem('cycleNotifyFlags');
 
       if (savedVault) {
         const vParsed = JSON.parse(savedVault);
@@ -194,6 +212,10 @@ export default function App() {
         setIsPasswordSet(!!vParsed.vaultPassword);
         setVaultPhotos(vParsed.vaultPhotos || []);
         setSavedNotes(vParsed.savedNotes || []);
+      }
+
+      if (savedFlags) {
+        setNotifyFlags(JSON.parse(savedFlags));
       }
 
       if (savedData) {
@@ -228,7 +250,6 @@ export default function App() {
     }
   };
 
-  // 💾 حفظ بيانات الخزنة بشكل مستقل ودائم (رمز سري + صور + ملاحظات) - يُستدعى في كل مرة تتغير فيها
   const saveVaultToStorage = async (newVaultPassword, newPhotos, newNotes) => {
     try {
       await AsyncStorage.setItem('vaultData', JSON.stringify({
@@ -252,11 +273,6 @@ export default function App() {
       return;
     }
     setScreen('Registration');
-  };
-
-  const triggerEndNotification = () => {
-    const msg = 'الحمد لله على سلامة الأميرة الكيوت! طهر الله قلبك وجسدك ونوّر أيامك القادمة';
-    Alert.alert('🌸 الحمد لله على السلامة', msg);
   };
 
   const calculateMedicalCycle = () => {
@@ -345,7 +361,6 @@ export default function App() {
     }
   };
 
-  // ---- الخزنة: تعيين/فتح الرمز، مع حفظ دائم فوري ----
   const handleSetPassword = () => {
     if (inputPassword.length === 4) {
       setVaultPassword(inputPassword);
@@ -368,31 +383,73 @@ export default function App() {
     }
   };
 
-  // ---- الخزنة: رفع صورة حقيقي من الجهاز ----
   const handlePickImage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
+    const libPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!libPermission.granted) {
       alert('لازم تسمحي للتطبيق بالوصول لصور جهازكِ عشان تقدري تخزنيها بالخزنة 🔐');
       return;
     }
+    const mediaPermission = await MediaLibrary.requestPermissionsAsync();
+    if (!mediaPermission.granted) {
+      alert('لازم تسمحي للتطبيق بإدارة الاستديو عشان تختفي الصور منه فعلياً 🔐');
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.7,
+      allowsMultipleSelection: true,
+      selectionLimit: 0,
     });
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const newPhotos = [...vaultPhotos, result.assets[0].uri];
+
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+    const newEntries = [];
+
+    for (const asset of result.assets) {
+      try {
+        const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + '.jpg';
+        const destPath = FileSystem.documentDirectory + fileName;
+        await FileSystem.copyAsync({ from: asset.uri, to: destPath });
+
+        let originalAssetId = null;
+        try {
+          if (asset.assetId) {
+            originalAssetId = asset.assetId;
+            await MediaLibrary.deleteAssetsAsync([asset.assetId]);
+          }
+        } catch (delErr) {
+          console.log('تعذر حذف الصورة الأصلية من الاستديو:', delErr);
+        }
+
+        newEntries.push({ uri: destPath, hiddenFromGallery: !!originalAssetId });
+      } catch (e) {
+        console.error('خطأ بنسخ الصورة:', e);
+      }
+    }
+
+    if (newEntries.length > 0) {
+      const newPhotos = [...vaultPhotos, ...newEntries];
       setVaultPhotos(newPhotos);
       saveVaultToStorage(vaultPassword, newPhotos, savedNotes);
     }
   };
 
-  const handleDeletePhoto = (uri) => {
-    const newPhotos = vaultPhotos.filter(p => p !== uri);
+  const handleDeletePhoto = async (photo) => {
+    try {
+      if (photo.hiddenFromGallery) {
+        await MediaLibrary.saveToLibraryAsync(photo.uri);
+      }
+      await FileSystem.deleteAsync(photo.uri, { idempotent: true });
+    } catch (e) {
+      console.log('خطأ أثناء إرجاع/حذف الصورة:', e);
+    }
+    const newPhotos = vaultPhotos.filter(p => p.uri !== photo.uri);
     setVaultPhotos(newPhotos);
     saveVaultToStorage(vaultPassword, newPhotos, savedNotes);
+    if (viewerPhotoUri === photo.uri) setViewerPhotoUri(null);
   };
 
-  // ---- الخزنة: المفكرة ----
   const handleSaveNote = () => {
     if (!vaultNoteText.trim()) return;
     const newNote = { id: Date.now().toString(), text: vaultNoteText.trim() };
@@ -406,9 +463,22 @@ export default function App() {
     const newNotes = savedNotes.filter(n => n.id !== id);
     setSavedNotes(newNotes);
     saveVaultToStorage(vaultPassword, vaultPhotos, newNotes);
+    if (viewerNote && viewerNote.id === id) setViewerNote(null);
   };
 
-  // --- 0. شاشة تحميل مؤقتة أثناء فحص البيانات المحفوظة ---
+  const openNoteViewer = (note) => {
+    setViewerNote(note);
+    setViewerNoteText(note.text);
+  };
+
+  const handleUpdateNote = () => {
+    if (!viewerNote) return;
+    const newNotes = savedNotes.map(n => n.id === viewerNote.id ? { ...n, text: viewerNoteText.trim() } : n);
+    setSavedNotes(newNotes);
+    saveVaultToStorage(vaultPassword, vaultPhotos, newNotes);
+    setViewerNote(null);
+  };
+
   if (screen === 'Loading') {
     return (
       <View style={styles.container}>
@@ -576,7 +646,6 @@ export default function App() {
           {!cycleInfo ? (
             <ActivityIndicator size="small" color="#FF6B8B" />
           ) : cycleInfo.isPeriodNow ? (
-            // عداد أيام الطمث - يظهر تلقائياً بس تبدأ الدورة فعلياً
             <View style={styles.circleContainer}>
               <View style={[styles.outerCircle, { backgroundColor: '#FFC2CE', borderColor: '#FF6B8B' }]}>
                 <View style={styles.innerCircle}>
@@ -611,12 +680,6 @@ export default function App() {
               <Text style={styles.dateValue}>{cycleInfo.ovulationDate.toISOString().split('T')[0]}</Text>
             </View>
           )}
-
-          <TouchableOpacity style={styles.safeButtonTest} onPress={triggerEndNotification}>
-            <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>
-              🧸 تجربة إشعار انتهاء المحيض والتهنئة بالسلامة
-            </Text>
-          </TouchableOpacity>
 
           <TouchableOpacity style={styles.aiDoctorBanner} onPress={() => setScreen('AiChat')}>
             <Text style={styles.aiDoctorIcon}>🩺🧸</Text>
@@ -664,7 +727,6 @@ export default function App() {
     );
   }
 
-  // ==================== شاشة المستلزمات (منفصلة تماماً عن الذكاء الاصطناعي) ====================
   if (screen === 'Supplies') {
     return (
       <ScrollView contentContainerStyle={styles.scrollContainer}>
@@ -761,17 +823,19 @@ export default function App() {
           {vaultTab === 'photos' ? (
             <View style={{ width: '100%', alignItems: 'center' }}>
               <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%' }]} onPress={handlePickImage}>
-                <Text style={styles.langTextActive}>📷 إضافة صورة من الجهاز</Text>
+                <Text style={styles.langTextActive}>📷 إضافة صورة (يمكن اختيار أكثر من صورة)</Text>
               </TouchableOpacity>
 
               <View style={styles.photosGrid}>
                 {vaultPhotos.length === 0 ? (
                   <Text style={{ color: '#AAA', marginTop: 15 }}>لا يوجد صور محفوظة بعد</Text>
                 ) : (
-                  vaultPhotos.map((uri, i) => (
+                  vaultPhotos.map((photo, i) => (
                     <View key={i} style={styles.photoItem}>
-                      <Image source={{ uri }} style={styles.photoThumb} />
-                      <TouchableOpacity style={styles.deletePhotoBtn} onPress={() => handleDeletePhoto(uri)}>
+                      <TouchableOpacity onPress={() => setViewerPhotoUri(photo.uri)}>
+                        <Image source={{ uri: photo.uri }} style={styles.photoThumb} />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.deletePhotoBtn} onPress={() => handleDeletePhoto(photo)}>
                         <Text style={{ color: '#FFF', fontSize: 11 }}>حذف</Text>
                       </TouchableOpacity>
                     </View>
@@ -794,12 +858,12 @@ export default function App() {
               </TouchableOpacity>
 
               {savedNotes.map((note) => (
-                <View key={note.id} style={styles.noteCard}>
-                  <Text style={{ color: '#4A4A4A', textAlign: 'right', flex: 1 }}>{note.text}</Text>
+                <TouchableOpacity key={note.id} style={styles.noteCard} onPress={() => openNoteViewer(note)}>
+                  <Text style={{ color: '#4A4A4A', textAlign: 'right', flex: 1 }} numberOfLines={1}>{note.text}</Text>
                   <TouchableOpacity onPress={() => handleDeleteNote(note.id)}>
                     <Text style={{ color: '#FF6B8B', fontWeight: 'bold', marginLeft: 10 }}>حذف</Text>
                   </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
               ))}
             </View>
           )}
@@ -808,6 +872,38 @@ export default function App() {
             <Text style={styles.langTextActive}>إغلاق الخزنة بأمان</Text>
           </TouchableOpacity>
         </ScrollView>
+
+        <Modal visible={!!viewerPhotoUri} transparent={true} animationType="fade">
+          <View style={styles.photoViewerOverlay}>
+            <TouchableOpacity style={styles.photoViewerClose} onPress={() => setViewerPhotoUri(null)}>
+              <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 16 }}>✕ إغلاق</Text>
+            </TouchableOpacity>
+            {viewerPhotoUri && (
+              <Image source={{ uri: viewerPhotoUri }} style={styles.photoViewerImage} resizeMode="contain" />
+            )}
+          </View>
+        </Modal>
+
+        <Modal visible={!!viewerNote} transparent={true} animationType="fade">
+          <View style={styles.noteViewerOverlay}>
+            <View style={styles.noteViewerBox}>
+              <TextInput
+                style={[styles.cuteInput, { height: 200, textAlignVertical: 'top' }]}
+                multiline
+                value={viewerNoteText}
+                onChangeText={setViewerNoteText}
+              />
+              <View style={{ flexDirection: 'row-reverse', marginTop: 15 }}>
+                <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '48%', marginLeft: '4%' }]} onPress={handleUpdateNote}>
+                  <Text style={styles.langTextActive}>💾 حفظ التعديل</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.langButton, { backgroundColor: '#666', width: '48%' }]} onPress={() => setViewerNote(null)}>
+                  <Text style={styles.langTextActive}>إغلاق</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </View>
     );
   }
@@ -847,7 +943,6 @@ const styles = StyleSheet.create({
   dashboardStatus: { fontSize: 15, fontWeight: 'bold', color: '#4A4A4A', marginTop: 10, marginBottom: 15 },
   dateText: { fontSize: 13, color: '#555', fontWeight: '600', textAlign: 'right', marginTop: 5 },
   dateValue: { fontWeight: 'bold', color: '#FF6B8B', textAlign: 'right', marginBottom: 5 },
-  safeButtonTest: { width: '95%', backgroundColor: '#BA55D3', padding: 12, borderRadius: 12, alignItems: 'center', marginBottom: 15, elevation: 2 },
   aiDoctorBanner: { width: '95%', backgroundColor: '#FFE4E1', borderRadius: 15, padding: 12, flexDirection: 'row-reverse', alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#FFB6C1' },
   aiDoctorIcon: { fontSize: 26 },
   aiDoctorTitle: { fontSize: 14, fontWeight: 'bold', color: '#FF416C' },
@@ -888,4 +983,9 @@ const styles = StyleSheet.create({
   closeAdButton: { position: 'absolute', top: 40, right: 20, backgroundColor: '#FF6B8B', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   adFallback: { position: 'absolute', top: '45%', width: '100%', alignItems: 'center' },
   bottomBanner: { height: 60, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#FFE0E5', alignItems: 'center', justifyContent: 'center' },
+  photoViewerOverlay: { flex: 1, backgroundColor: '#000000EE', alignItems: 'center', justifyContent: 'center' },
+  photoViewerImage: { width: '95%', height: '80%' },
+  photoViewerClose: { position: 'absolute', top: 40, right: 20, backgroundColor: '#FF6B8B', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, zIndex: 10 },
+  noteViewerOverlay: { flex: 1, backgroundColor: '#00000099', alignItems: 'center', justifyContent: 'center' },
+  noteViewerBox: { width: '90%', backgroundColor: '#FFF5F5', borderRadius: 15, padding: 15 },
 });
