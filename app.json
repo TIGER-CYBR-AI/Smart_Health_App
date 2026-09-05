@@ -3,11 +3,16 @@
     "name": "صحتها",
     "slug": "smarthealthapp",
     "version": "1.0.0",
-    "owner": "liger313",
+    "owner": "liger313s-team",
     "icon": "./assets/icon.png",
     "orientation": "portrait",
     "android": {
       "package": "com.tigertechnology.smarthealthapp"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4d70dd1d-35ad-47ef-9bdf-3b057c39b53d"
+      }
     }
   }
 }
