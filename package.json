@@ -1,17 +1,27 @@
 {
-  "name": "smart-health-app",
-  "version": "1.0.0",
-  "main": "node_modules/expo/AppEntry.js",
-  "scripts": {
-    "start": "expo start",
-    "android": "expo start --android"
-  },
-  "dependencies": {
-    "@react-native-async-storage/async-storage": "1.23.1",
-    "expo": "~51.0.0",
-    "expo-image-picker": "~15.1.0",
-    "react": "18.2.0",
-    "react-native": "0.74.5",
-    "react-native-webview": "13.8.6"
+  "expo": {
+    "name": "صحتها",
+    "slug": "smarthealthapp",
+    "version": "1.0.0",
+    "owner": "liger313s-team",
+    "icon": "./assets/icon.png",
+    "orientation": "portrait",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFF5F5"
+    },
+    "android": {
+      "package": "com.tigertechnology.smarthealthapp",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#FFF5F5"
+      }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "4d70dd1d-35ad-47ef-9bdf-3b057c39b53d"
+      }
+    }
   }
 }
