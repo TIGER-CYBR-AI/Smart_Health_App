@@ -24,6 +24,9 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
+      - name: تنظيف أي نسخة قديمة من node_modules
+        run: rm -rf node_modules
+
       - name: تثبيت الاعتماديات
         run: npm install
 
