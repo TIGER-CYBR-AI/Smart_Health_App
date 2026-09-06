@@ -36,6 +36,27 @@ jobs:
       - name: توليد مجلد Android الأصلي
         run: npx expo prebuild --platform android --non-interactive
 
+      - name: استعادة مفتاح التوقيع الرسمي
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/release.keystore
+
+      - name: إعداد بيانات التوقيع لملف Gradle
+        run: |
+          echo "MYAPP_RELEASE_STORE_FILE=release.keystore" >> android/gradle.properties
+          echo "MYAPP_RELEASE_KEY_ALIAS=${{ secrets.KEY_ALIAS }}" >> android/gradle.properties
+          echo "MYAPP_RELEASE_STORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }}" >> android/gradle.properties
+          echo "MYAPP_RELEASE_KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> android/gradle.properties
+
+      - name: تفعيل التوقيع الرسمي داخل build.gradle
+        run: |
+          sed -i "/signingConfigs {/a\\
+              release {\\
+                  storeFile file(MYAPP_RELEASE_STORE_FILE)\\
+                  storePassword MYAPP_RELEASE_STORE_PASSWORD\\
+                  keyAlias MYAPP_RELEASE_KEY_ALIAS\\
+                  keyPassword MYAPP_RELEASE_KEY_PASSWORD\\
+              }" android/app/build.gradle
+          sed -i "s/signingConfig signingConfigs.debug/signingConfig signingConfigs.release/g" android/app/build.gradle
+
       - name: بناء ملف APK
         run: |
           cd android
@@ -45,5 +66,5 @@ jobs:
       - name: رفع ملف APK كمخرج نهائي
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: app-release-apk-signed
           path: android/app/build/outputs/apk/release/app-release.apk
