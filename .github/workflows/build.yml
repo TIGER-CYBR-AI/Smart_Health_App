@@ -1,24 +1,46 @@
-name: Build APK
+name: Build Android APK
+
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
+  push:
+    branches: [main]
+
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
+      - name: تحميل الكود
         uses: actions/checkout@v4
-      - name: Set up Node
+
+      - name: إعداد Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Install dependencies
+          cache: 'npm'
+
+      - name: إعداد Java (مطلوب لبناء أندرويد)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: تثبيت الاعتماديات
         run: npm install
-      - name: Install EAS CLI
-        run: npm install -g eas-cli
-      - name: Build APK via EAS
-        run: eas build --platform android --profile preview --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: كتابة المتغيرات السرية (مفتاح Groq)
+        run: echo "EXPO_PUBLIC_GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
+
+      - name: توليد مجلد Android الأصلي
+        run: npx expo prebuild --platform android --non-interactive
+
+      - name: بناء ملف APK
+        run: |
+          cd android
+          chmod +x ./gradlew
+          ./gradlew assembleRelease
+
+      - name: رفع ملف APK كمخرج نهائي
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
