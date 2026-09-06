@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView, Alert, ActivityIndicator, Modal, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { WebView } from 'react-native-webview';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 export default function App() {
   const [screen, setScreen] = useState('Loading');
@@ -85,8 +85,11 @@ export default function App() {
       hoursLeftInPeriod,
       ovulationDate,
       anchorKey: periodStart.toISOString().split('T')[0],
+      targetDate: isPeriodNow ? periodEndBoundary : periodStart,
     };
   };
+
+  const [liveClock, setLiveClock] = useState('00:00:00');
 
   useEffect(() => {
     if (screen !== 'Dashboard') return;
@@ -95,6 +98,29 @@ export default function App() {
     const interval = setInterval(update, 60000);
     return () => clearInterval(interval);
   }, [screen, periodYear, periodMonth, periodDay, cycleLength, periodDuration]);
+
+  // ساعة رقمية حقيقية تعد تنازلياً بالثانية الفعلية (HH:MM:SS)، بتتحدث كل ثانية بشكل مباشر
+  useEffect(() => {
+    if (screen !== 'Dashboard' || !cycleInfo || !cycleInfo.targetDate) return;
+
+    const tick = () => {
+      const now = new Date();
+      const diffMs = cycleInfo.targetDate.getTime() - now.getTime();
+      const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
+
+      const remainderInDay = totalSeconds % 86400;
+      const hh = Math.floor(remainderInDay / 3600);
+      const mm = Math.floor((remainderInDay % 3600) / 60);
+      const ss = remainderInDay % 60;
+
+      const pad = (n) => n.toString().padStart(2, '0');
+      setLiveClock(pad(hh) + ':' + pad(mm) + ':' + pad(ss));
+    };
+
+    tick();
+    const clockInterval = setInterval(tick, 1000);
+    return () => clearInterval(clockInterval);
+  }, [screen, cycleInfo]);
 
   const saveNotifyFlags = async (flags) => {
     try {
@@ -161,44 +187,9 @@ export default function App() {
   const [viewerNote, setViewerNote] = useState(null);
   const [viewerNoteText, setViewerNoteText] = useState('');
 
-  const INTERSTITIAL_LINK = 'https://www.profitableratecpmnetwork.com/yg9n6zwp2n?key=fc38f2fdc96be1b732242b8a32defd8b';
-  const AADS_BANNER_HTML = `
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>html,body{margin:0;padding:0;background:transparent;}</style>
-</head>
-<body>
-<div id="frame" style="width: 300px;margin: auto;z-index: 99998;height: auto">
-<iframe data-aa='2454281' src='https://ad.a-ads.com/2454281/?size=300x250' style='border:0; padding:0; width:300px; height:250px; overflow:hidden;display: block;margin: auto'></iframe>
-</div>
-</body>
-</html>
-`;
-  const [showInterstitial, setShowInterstitial] = useState(false);
-  const [interstitialTimer, setInterstitialTimer] = useState(5);
-  const [interstitialFailed, setInterstitialFailed] = useState(false);
-  const [bannerFailed, setBannerFailed] = useState(false);
-
   useEffect(() => {
     checkSavedData();
   }, []);
-
-  useEffect(() => {
-    if (screen === 'Dashboard' && !showInterstitial) {
-      setShowInterstitial(true);
-      setInterstitialTimer(5);
-      setInterstitialFailed(false);
-    }
-  }, [screen]);
-
-  useEffect(() => {
-    if (showInterstitial && interstitialTimer > 0) {
-      const t = setTimeout(() => setInterstitialTimer(prev => prev - 1), 1000);
-      return () => clearTimeout(t);
-    }
-  }, [showInterstitial, interstitialTimer]);
 
   const checkSavedData = async () => {
     try {
@@ -397,34 +388,52 @@ export default function App() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
+      quality: 1,
       allowsMultipleSelection: true,
       selectionLimit: 0,
     });
 
     if (result.canceled || !result.assets || result.assets.length === 0) return;
 
+    try {
+      await FileSystem.makeDirectoryAsync(FileSystem.documentDirectory + 'vault', { intermediates: true });
+    } catch (dirErr) {
+      // المجلد موجود مسبقاً، لا مشكلة
+    }
+
     const newEntries = [];
+    let failedCount = 0;
 
     for (const asset of result.assets) {
       try {
-        const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + '.jpg';
-        const destPath = FileSystem.documentDirectory + fileName;
-        await FileSystem.copyAsync({ from: asset.uri, to: destPath });
+        // نمرر الصورة عبر معالج حقيقي بدل نسخها مباشرة: هذا يصلح مشكلة الملفات
+        // التالفة/الفاضية القادمة من روابط content:// الخاصة بمنتقي الصور،
+        // وبنفس الوقت يصغّر أبعادها ويضغط جودتها لتوفير مساحة التخزين
+        const manipulated = await ImageManipulator.manipulateAsync(
+          asset.uri,
+          [{ resize: { width: 1080 } }],
+          { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
+        );
 
-        let originalAssetId = null;
+        const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + '.jpg';
+        const destPath = FileSystem.documentDirectory + 'vault/' + fileName;
+        await FileSystem.copyAsync({ from: manipulated.uri, to: destPath });
+
+        // نتأكد فعلياً من نجاح حذف الصورة الأصلية من الاستديو بدل افتراض النجاح
+        let hiddenFromGallery = false;
         try {
           if (asset.assetId) {
-            originalAssetId = asset.assetId;
-            await MediaLibrary.deleteAssetsAsync([asset.assetId]);
+            const deleteResult = await MediaLibrary.deleteAssetsAsync([asset.assetId]);
+            hiddenFromGallery = deleteResult === true;
           }
         } catch (delErr) {
           console.log('تعذر حذف الصورة الأصلية من الاستديو:', delErr);
         }
 
-        newEntries.push({ uri: destPath, hiddenFromGallery: !!originalAssetId });
+        newEntries.push({ uri: destPath, hiddenFromGallery });
       } catch (e) {
-        console.error('خطأ بنسخ الصورة:', e);
+        failedCount++;
+        console.error('خطأ بمعالجة/نسخ الصورة:', e);
       }
     }
 
@@ -432,6 +441,10 @@ export default function App() {
       const newPhotos = [...vaultPhotos, ...newEntries];
       setVaultPhotos(newPhotos);
       saveVaultToStorage(vaultPassword, newPhotos, savedNotes);
+    }
+
+    if (failedCount > 0) {
+      alert('تعذر حفظ ' + failedCount + ' صورة بشكل سليم، الرجاء إعادة المحاولة 🙏');
     }
   };
 
@@ -611,32 +624,7 @@ export default function App() {
   if (screen === 'Dashboard') {
     return (
       <View style={{ flex: 1 }}>
-        <Modal visible={showInterstitial} transparent={false} animationType="fade">
-          <View style={{ flex: 1 }}>
-            <WebView
-              source={{ uri: INTERSTITIAL_LINK }}
-              style={{ flex: 1 }}
-              onError={() => setInterstitialFailed(true)}
-              onHttpError={() => setInterstitialFailed(true)}
-            />
-            {interstitialFailed && (
-              <View style={styles.adFallback}>
-                <Text style={{ color: '#FFF', textAlign: 'center' }}>تعذّر تحميل الإعلان حالياً</Text>
-              </View>
-            )}
-            {(interstitialTimer > 0 && !interstitialFailed) ? (
-              <View style={styles.timerBadge}>
-                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>{interstitialTimer}</Text>
-              </View>
-            ) : (
-              <TouchableOpacity style={styles.closeAdButton} onPress={() => setShowInterstitial(false)}>
-                <Text style={{ color: '#FFF', fontWeight: 'bold' }}>✕ إغلاق</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </Modal>
-
-        <ScrollView contentContainerStyle={[styles.scrollContainer, { paddingBottom: 70 }]}>
+        <ScrollView contentContainerStyle={styles.scrollContainer}>
           <View style={styles.headerDecoration}>
             <Text style={styles.decoratorLine}>============</Text>
             <Text style={styles.princessTitle}>👑 {userName} - {userAge} Years Old 👑</Text>
@@ -653,9 +641,9 @@ export default function App() {
                   <Text style={styles.circleText}>أيام متبقية على انتهاء الطمث</Text>
                 </View>
               </View>
-              <View style={styles.hoursCircleSmall}>
-                <Text style={styles.hoursNumberSmall}>{cycleInfo.hoursLeftInPeriod}</Text>
-                <Text style={styles.hoursTextSmall}>ساعة</Text>
+              <View style={styles.digitalClockBox}>
+                <Text style={styles.digitalClockText}>{liveClock}</Text>
+                <Text style={styles.digitalClockLabel}>ساعة : دقيقة : ثانية</Text>
               </View>
               <Text style={styles.dashboardStatus}>🩸 فترة الطمث الحالية</Text>
             </View>
@@ -667,9 +655,9 @@ export default function App() {
                   <Text style={styles.circleText}>أيام متبقية للدورة</Text>
                 </View>
               </View>
-              <View style={styles.hoursCircleSmall}>
-                <Text style={styles.hoursNumberSmall}>{cycleInfo.hoursToNextPeriod}</Text>
-                <Text style={styles.hoursTextSmall}>ساعة</Text>
+              <View style={styles.digitalClockBox}>
+                <Text style={styles.digitalClockText}>{liveClock}</Text>
+                <Text style={styles.digitalClockLabel}>ساعة : دقيقة : ثانية</Text>
               </View>
               <Text style={styles.dashboardStatus}>✨ فترة الأيام العادية</Text>
 
@@ -711,18 +699,6 @@ export default function App() {
             </TouchableOpacity>
           </View>
         </ScrollView>
-        <View style={styles.bottomBanner}>
-          <WebView
-            source={{ html: AADS_BANNER_HTML }}
-            style={{ flex: 1 }}
-            scrollEnabled={false}
-            onError={() => setBannerFailed(true)}
-            onHttpError={() => setBannerFailed(true)}
-          />
-          {bannerFailed && (
-            <Text style={{ position: 'absolute', color: '#AAA', fontSize: 11 }}>الإعلان غير متوفر حالياً</Text>
-          )}
-        </View>
       </View>
     );
   }
@@ -937,9 +913,9 @@ const styles = StyleSheet.create({
   innerCircle: { width: 130, height: 130, borderRadius: 65, backgroundColor: '#FFF', alignItems: 'center', justifyContent: 'center' },
   circleNumber: { fontSize: 44, fontWeight: 'bold', color: '#FF6B8B' },
   circleText: { fontSize: 12, color: '#888', fontWeight: '600', marginTop: 4 },
-  hoursCircleSmall: { width: 70, height: 70, borderRadius: 35, backgroundColor: '#FFF', borderWidth: 2, borderColor: '#FFB6C1', alignItems: 'center', justifyContent: 'center', marginTop: -20, elevation: 3 },
-  hoursNumberSmall: { fontSize: 18, fontWeight: 'bold', color: '#FF6B8B' },
-  hoursTextSmall: { fontSize: 9, color: '#888' },
+  digitalClockBox: { minWidth: 150, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: '#4A4A4A', alignItems: 'center', justifyContent: 'center', marginTop: -20, elevation: 3, borderWidth: 2, borderColor: '#FFB6C1' },
+  digitalClockText: { fontSize: 22, fontWeight: 'bold', color: '#FFD6DD', letterSpacing: 2 },
+  digitalClockLabel: { fontSize: 9, color: '#DDD', marginTop: 2 },
   dashboardStatus: { fontSize: 15, fontWeight: 'bold', color: '#4A4A4A', marginTop: 10, marginBottom: 15 },
   dateText: { fontSize: 13, color: '#555', fontWeight: '600', textAlign: 'right', marginTop: 5 },
   dateValue: { fontWeight: 'bold', color: '#FF6B8B', textAlign: 'right', marginBottom: 5 },
@@ -979,10 +955,6 @@ const styles = StyleSheet.create({
   photoThumb: { width: '100%', height: 90, borderRadius: 10 },
   deletePhotoBtn: { backgroundColor: '#FF6B8B', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, marginTop: 4 },
   noteCard: { width: '100%', backgroundColor: '#FFF', borderRadius: 12, padding: 12, marginTop: 10, flexDirection: 'row-reverse', alignItems: 'center', borderWidth: 1, borderColor: '#FFE0E5' },
-  timerBadge: { position: 'absolute', top: 40, right: 20, backgroundColor: '#00000099', width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
-  closeAdButton: { position: 'absolute', top: 40, right: 20, backgroundColor: '#FF6B8B', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
-  adFallback: { position: 'absolute', top: '45%', width: '100%', alignItems: 'center' },
-  bottomBanner: { height: 60, backgroundColor: '#FFF', borderTopWidth: 1, borderTopColor: '#FFE0E5', alignItems: 'center', justifyContent: 'center' },
   photoViewerOverlay: { flex: 1, backgroundColor: '#000000EE', alignItems: 'center', justifyContent: 'center' },
   photoViewerImage: { width: '95%', height: '80%' },
   photoViewerClose: { position: 'absolute', top: 40, right: 20, backgroundColor: '#FF6B8B', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, zIndex: 10 },
