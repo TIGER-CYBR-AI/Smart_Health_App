@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as DocumentPicker from 'expo-document-picker';
 
 export default function App() {
   const [screen, setScreen] = useState('Loading');
@@ -99,7 +100,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [screen, periodYear, periodMonth, periodDay, cycleLength, periodDuration]);
 
-  // ساعة رقمية حقيقية تعد تنازلياً بالثانية الفعلية (HH:MM:SS)، بتتحدث كل ثانية بشكل مباشر
   useEffect(() => {
     if (screen !== 'Dashboard' || !cycleInfo || !cycleInfo.targetDate) return;
 
@@ -374,20 +374,23 @@ export default function App() {
     }
   };
 
+  // === دالة إضافة صور/فيديوهات للخزنة ===
+  // القاعدة الذهبية: ما نلمس/نحذف الملف الأصلي من الاستديو أبداً
+  // إلا بعد ما نتأكد 100% إنه النسخة بالخزنة انحفظت بنجاح وحجمها أكبر من صفر
   const handlePickImage = async () => {
     const libPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!libPermission.granted) {
-      alert('لازم تسمحي للتطبيق بالوصول لصور جهازكِ عشان تقدري تخزنيها بالخزنة 🔐');
+      alert('لازم تسمحي للتطبيق بالوصول لصور وفيديوهات جهازكِ عشان تقدري تخزنيها بالخزنة 🔐');
       return;
     }
     const mediaPermission = await MediaLibrary.requestPermissionsAsync();
     if (!mediaPermission.granted) {
-      alert('لازم تسمحي للتطبيق بإدارة الاستديو عشان تختفي الصور منه فعلياً 🔐');
+      alert('لازم تسمحي للتطبيق بإدارة الاستديو عشان تختفي الملفات منه فعلياً 🔐');
       return;
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.All, // صور + فيديو معاً
       quality: 1,
       allowsMultipleSelection: true,
       selectionLimit: 0,
@@ -406,20 +409,34 @@ export default function App() {
 
     for (const asset of result.assets) {
       try {
-        // نمرر الصورة عبر معالج حقيقي بدل نسخها مباشرة: هذا يصلح مشكلة الملفات
-        // التالفة/الفاضية القادمة من روابط content:// الخاصة بمنتقي الصور،
-        // وبنفس الوقت يصغّر أبعادها ويضغط جودتها لتوفير مساحة التخزين
-        const manipulated = await ImageManipulator.manipulateAsync(
-          asset.uri,
-          [{ resize: { width: 1080 } }],
-          { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
-        );
+        const isVideo = asset.type === 'video';
+        let sourceUri = asset.uri;
 
-        const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + '.jpg';
+        // المعالجة (تصغير الأبعاد وضغط الجودة) تنطبق على الصور فقط
+        if (!isVideo) {
+          const manipulated = await ImageManipulator.manipulateAsync(
+            asset.uri,
+            [{ resize: { width: 1080 } }],
+            { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
+          );
+          sourceUri = manipulated.uri;
+        }
+
+        const ext = isVideo ? '.mp4' : '.jpg';
+        const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + ext;
         const destPath = FileSystem.documentDirectory + 'vault/' + fileName;
-        await FileSystem.copyAsync({ from: manipulated.uri, to: destPath });
 
-        // نتأكد فعلياً من نجاح حذف الصورة الأصلية من الاستديو بدل افتراض النجاح
+        await FileSystem.copyAsync({ from: sourceUri, to: destPath });
+
+        // === تأكيد حقيقي وصارم قبل أي حذف ===
+        // نتحقق إنه الملف موجود فعلياً وحجمه أكبر من صفر، وإلا نعتبرها فشلت
+        // ونوقف فوراً دون أي مساس بالملف الأصلي بالاستديو
+        const info = await FileSystem.getInfoAsync(destPath);
+        if (!info.exists || info.size === 0) {
+          throw new Error('الملف المنسوخ فاضي أو غير موجود');
+        }
+
+        // فقط الآن، بعد التأكد التام من نجاح النسخة، نخفي الأصلية من الاستديو
         let hiddenFromGallery = false;
         try {
           if (asset.assetId) {
@@ -427,13 +444,13 @@ export default function App() {
             hiddenFromGallery = deleteResult === true;
           }
         } catch (delErr) {
-          console.log('تعذر حذف الصورة الأصلية من الاستديو:', delErr);
+          console.log('تعذر إخفاء الملف الأصلي من الاستديو:', delErr);
         }
 
-        newEntries.push({ uri: destPath, hiddenFromGallery });
+        newEntries.push({ uri: destPath, type: isVideo ? 'video' : 'image', hiddenFromGallery });
       } catch (e) {
         failedCount++;
-        console.error('خطأ بمعالجة/نسخ الصورة:', e);
+        console.error('خطأ بمعالجة/نسخ الملف:', e);
       }
     }
 
@@ -444,18 +461,48 @@ export default function App() {
     }
 
     if (failedCount > 0) {
-      alert('تعذر حفظ ' + failedCount + ' صورة بشكل سليم، الرجاء إعادة المحاولة 🙏');
+      alert('تعذر حفظ ' + failedCount + ' ملف بشكل سليم، الرجاء إعادة المحاولة 🙏 (الملفات الأصلية بقيت بأمان بالاستديو ولم تُمس)');
     }
   };
 
+  // === دالة إضافة ملف صوتي للخزنة ===
+  const handlePickAudio = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+    try {
+      await FileSystem.makeDirectoryAsync(FileSystem.documentDirectory + 'vault', { intermediates: true });
+    } catch (dirErr) {}
+
+    const asset = result.assets[0];
+    const safeName = (asset.name || 'audio').replace(/[^a-zA-Z0-9.-]/g, '');
+    const fileName = 'vault_' + Date.now() + '' + Math.floor(Math.random() * 100000) + '' + safeName;
+    const destPath = FileSystem.documentDirectory + 'vault/' + fileName;
+
+    try {
+      await FileSystem.copyAsync({ from: asset.uri, to: destPath });
+      const info = await FileSystem.getInfoAsync(destPath);
+      if (!info.exists || info.size === 0) throw new Error('ملف صوتي فاضي');
+
+      const newPhotos = [...vaultPhotos, { uri: destPath, type: 'audio', hiddenFromGallery: false, name: asset.name || 'ملف صوتي' }];
+      setVaultPhotos(newPhotos);
+      saveVaultToStorage(vaultPassword, newPhotos, savedNotes);
+    } catch (e) {
+      console.error('خطأ بحفظ الملف الصوتي:', e);
+      alert('تعذر حفظ الملف الصوتي، الرجاء إعادة المحاولة 🙏');
+    }
+  };
+
+  // === دالة حذف عنصر من الخزنة (صورة/فيديو/صوت) ===
+  // لو كان مخفياً عن الاستديو، نرجعه يظهر فيه من جديد قبل حذفه من الخزنة
   const handleDeletePhoto = async (photo) => {
     try {
-      if (photo.hiddenFromGallery) {
+      if (photo.hiddenFromGallery && photo.type !== 'audio') {
         await MediaLibrary.saveToLibraryAsync(photo.uri);
       }
       await FileSystem.deleteAsync(photo.uri, { idempotent: true });
     } catch (e) {
-      console.log('خطأ أثناء إرجاع/حذف الصورة:', e);
+      console.log('خطأ أثناء إرجاع/حذف الملف:', e);
     }
     const newPhotos = vaultPhotos.filter(p => p.uri !== photo.uri);
     setVaultPhotos(newPhotos);
@@ -799,18 +846,34 @@ export default function App() {
           {vaultTab === 'photos' ? (
             <View style={{ width: '100%', alignItems: 'center' }}>
               <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%' }]} onPress={handlePickImage}>
-                <Text style={styles.langTextActive}>📷 إضافة صورة (يمكن اختيار أكثر من صورة)</Text>
+                <Text style={styles.langTextActive}>📷 إضافة صورة أو فيديو (يمكن اختيار أكثر من ملف)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%', marginTop: 8 }]} onPress={handlePickAudio}>
+                <Text style={styles.langTextActive}>🎵 إضافة ملف صوتي</Text>
               </TouchableOpacity>
 
               <View style={styles.photosGrid}>
                 {vaultPhotos.length === 0 ? (
-                  <Text style={{ color: '#AAA', marginTop: 15 }}>لا يوجد صور محفوظة بعد</Text>
+                  <Text style={{ color: '#AAA', marginTop: 15 }}>لا يوجد ملفات محفوظة بعد</Text>
                 ) : (
                   vaultPhotos.map((photo, i) => (
                     <View key={i} style={styles.photoItem}>
-                      <TouchableOpacity onPress={() => setViewerPhotoUri(photo.uri)}>
-                        <Image source={{ uri: photo.uri }} style={styles.photoThumb} />
-                      </TouchableOpacity>
+                      {photo.type === 'audio' ? (
+                        <View style={[styles.photoThumb, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFE4E1' }]}>
+                          <Text style={{ fontSize: 28 }}>🎵</Text>
+                        </View>
+                      ) : photo.type === 'video' ? (
+                        <TouchableOpacity onPress={() => setViewerPhotoUri(photo.uri)}>
+                          <View style={[styles.photoThumb, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }]}>
+                            <Text style={{ fontSize: 28 }}>🎬</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity onPress={() => setViewerPhotoUri(photo.uri)}>
+                          <Image source={{ uri: photo.uri }} style={styles.photoThumb} />
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity style={styles.deletePhotoBtn} onPress={() => handleDeletePhoto(photo)}>
                         <Text style={{ color: '#FFF', fontSize: 11 }}>حذف</Text>
                       </TouchableOpacity>
