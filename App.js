@@ -375,11 +375,10 @@ export default function App() {
   };
 
   // =========================================================================
-  // === منطق الخزنة المعاد بناؤه: التقاط صورة/فيديو، معالجة، حفظ، إخفاء ===
+  // === منطق الخزنة: الصور/الفيديو/الصوت — الدوال محفوظة هون بدون حذف،
+  // === بس مش مستخدمة حالياً بالواجهة (مخفية مؤقتاً لحين حل مشكلة الحفظ)
   // =========================================================================
 
-  // زر الصور: نطلب base64 من المنتقي مباشرة عشان نكتب الملف بأيدينا
-  // ونضمن إنه البيانات صحيحة 100% قبل ما نمررها لأي معالجة
   const handlePickImage = async () => {
     const libPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!libPermission.granted) {
@@ -411,8 +410,6 @@ export default function App() {
     await processPickedAssets(result.assets, false);
   };
 
-  // زر الفيديو: منفصل تماماً بمنتقي خاص بالفيديو فقط، عشان بعض الأجهزة
-  // (خصوصاً MIUI/Poco) ما بتظهر خيار الفيديو جوا منتقي "الكل" الموحّد
   const handlePickVideo = async () => {
     const libPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!libPermission.granted) {
@@ -443,9 +440,6 @@ export default function App() {
     await processPickedAssets(result.assets, true);
   };
 
-  // الدالة المشتركة: نسخ الملف فعلياً لمجلد الخزنة الخاص بالتطبيق،
-  // التأكد الصارم من سلامته، ثم محاولة إخفاء الأصلي من الاستديو
-  // (مع إخبار المستخدمة بصدق إذا فشلت محاولة الإخفاء بسبب قيود أندرويد)
   const processPickedAssets = async (assets, forceVideo) => {
     try {
       await FileSystem.makeDirectoryAsync(FileSystem.documentDirectory + 'vault', { intermediates: true });
@@ -467,9 +461,6 @@ export default function App() {
           destPath = FileSystem.documentDirectory + 'vault/' + fileName;
           await FileSystem.copyAsync({ from: asset.uri, to: destPath });
         } else {
-          // === النقطة الحرجة: بدل ما نثق بـ asset.uri (ممكن يكون content:// غير مضمون) ===
-          // منكتب البيانات الخام (base64) يلي رجّعها المنتقي بأيدينا لملف مؤقت بالكاش،
-          // وبعدين منمرر هاد الملف المضمون لـ ImageManipulator
           if (!asset.base64) {
             throw new Error('لم يتم استلام بيانات الصورة الخام من المعرض');
           }
@@ -491,14 +482,11 @@ export default function App() {
           try { await FileSystem.deleteAsync(tempPath, { idempotent: true }); } catch (cleanupErr) {}
         }
 
-        // === تأكيد حقيقي وصارم قبل أي حذف من الاستديو ===
         const info = await FileSystem.getInfoAsync(destPath);
         if (!info.exists || info.size === 0) {
           throw new Error('الملف المنسوخ فاضي أو غير موجود');
         }
 
-        // فقط الآن، بعد التأكد التام من نجاح النسخة، نحاول إخفاء الأصلية من الاستديو
-        // ملاحظة: هاد ممكن يفشل على بعض أجهزة أندرويد 11+ بسبب قيود النظام نفسه
         let hiddenFromGallery = false;
         try {
           if (asset.assetId) {
@@ -533,7 +521,6 @@ export default function App() {
     }
   };
 
-  // === دالة إضافة ملف صوتي للخزنة ===
   const handlePickAudio = async () => {
     const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
     if (result.canceled || !result.assets || result.assets.length === 0) return;
@@ -561,7 +548,6 @@ export default function App() {
     }
   };
 
-  // === دالة حذف عنصر من الخزنة (صورة/فيديو/صوت) ===
   const handleDeletePhoto = async (photo) => {
     try {
       if (photo.hiddenFromGallery && photo.type !== 'audio') {
@@ -897,90 +883,36 @@ export default function App() {
     return (
       <View style={{ flex: 1, backgroundColor: '#FFF5F5' }}>
         <ScrollView contentContainerStyle={styles.scrollContainer}>
-          <Text style={styles.cardIcon}>🔓🧸</Text>
-          <Text style={styles.welcomeTitle}>Pink Vault</Text>
-          <Text style={styles.welcomeSubtitle}>Your private photos and notes are 100% safe</Text>
+          <Text style={styles.cardIcon}>📔🎀</Text>
+          <Text style={styles.welcomeTitle}>مذكراتي السرية</Text>
+          <Text style={styles.welcomeSubtitle}>مساحتكِ الخاصة الآمنة لكتابة كل ما يخطر ببالكِ 🌸</Text>
 
-          <View style={styles.vaultTabsRow}>
-            <TouchableOpacity style={[styles.vaultTabButton, vaultTab === 'photos' && styles.vaultTabActive]} onPress={() => setVaultTab('photos')}>
-              <Text style={vaultTab === 'photos' ? styles.langTextActive : styles.langTextDark}>🖼️ الصور</Text>
+          <View style={{ width: '95%' }}>
+            <TextInput
+              style={[styles.cuteInput, { height: 120, textAlignVertical: 'top' }]}
+              placeholder="🖋️ اكتبي ما يجول بخاطركِ هنا..."
+              placeholderTextColor="#BAA"
+              multiline
+              value={vaultNoteText}
+              onChangeText={setVaultNoteText}
+            />
+            <TouchableOpacity style={[styles.langButton, styles.arabicButton, { marginTop: 10 }]} onPress={handleSaveNote}>
+              <Text style={styles.langTextActive}>💾 حفظ المذكرة</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.vaultTabButton, vaultTab === 'notes' && styles.vaultTabActive]} onPress={() => setVaultTab('notes')}>
-              <Text style={vaultTab === 'notes' ? styles.langTextActive : styles.langTextDark}>📝 المفكرة</Text>
-            </TouchableOpacity>
-          </View>
 
-          {vaultTab === 'photos' ? (
-            <View style={{ width: '100%', alignItems: 'center' }}>
-              <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%' }]} onPress={handlePickImage}>
-                <Text style={styles.langTextActive}>📷 إضافة صورة</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%', marginTop: 8 }]} onPress={handlePickVideo}>
-                <Text style={styles.langTextActive}>🎬 إضافة فيديو</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%', marginTop: 8 }]} onPress={handlePickAudio}>
-                <Text style={styles.langTextActive}>🎵 إضافة ملف صوتي</Text>
-              </TouchableOpacity>
-
-              <View style={styles.photosGrid}>
-                {vaultPhotos.length === 0 ? (
-                  <Text style={{ color: '#AAA', marginTop: 15 }}>لا يوجد ملفات محفوظة بعد</Text>
-                ) : (
-                  vaultPhotos.map((photo, i) => (
-                    <View key={i} style={styles.photoItem}>
-                      {photo.type === 'audio' ? (
-                        <View style={[styles.photoThumb, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFE4E1' }]}>
-                          <Text style={{ fontSize: 28 }}>🎵</Text>
-                        </View>
-                      ) : photo.type === 'video' ? (
-                        <TouchableOpacity onPress={() => setViewerPhotoUri(photo.uri)}>
-                          <View style={[styles.photoThumb, { alignItems: 'center', justifyContent: 'center', backgroundColor: '#000' }]}>
-                            <Text style={{ fontSize: 28 }}>🎬</Text>
-                          </View>
-                        </TouchableOpacity>
-                      ) : (
-                        <TouchableOpacity onPress={() => setViewerPhotoUri(photo.uri)}>
-                          <Image
-                            source={{ uri: photo.uri }}
-                            style={styles.photoThumb}
-                            onError={(e) => console.log('فشل تحميل الصورة:', photo.uri, e.nativeEvent.error)}
-                          />
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity style={styles.deletePhotoBtn} onPress={() => handleDeletePhoto(photo)}>
-                        <Text style={{ color: '#FFF', fontSize: 11 }}>حذف</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ))
-                )}
-              </View>
-            </View>
-          ) : (
-            <View style={{ width: '95%' }}>
-              <TextInput
-                style={[styles.cuteInput, { height: 90, textAlignVertical: 'top' }]}
-                placeholder="اكتبي مذكرتكِ الخاصة هنا..."
-                placeholderTextColor="#BAA"
-                multiline
-                value={vaultNoteText}
-                onChangeText={setVaultNoteText}
-              />
-              <TouchableOpacity style={[styles.langButton, styles.arabicButton, { marginTop: 10 }]} onPress={handleSaveNote}>
-                <Text style={styles.langTextActive}>💾 حفظ المذكرة</Text>
-              </TouchableOpacity>
-
-              {savedNotes.map((note) => (
+            {savedNotes.length === 0 ? (
+              <Text style={{ color: '#AAA', marginTop: 15 }}>لا توجد مذكرات محفوظة بعد 🎀</Text>
+            ) : (
+              savedNotes.map((note) => (
                 <TouchableOpacity key={note.id} style={styles.noteCard} onPress={() => openNoteViewer(note)}>
                   <Text style={{ color: '#4A4A4A', textAlign: 'right', flex: 1 }} numberOfLines={1}>{note.text}</Text>
                   <TouchableOpacity onPress={() => handleDeleteNote(note.id)}>
                     <Text style={{ color: '#FF6B8B', fontWeight: 'bold', marginLeft: 10 }}>حذف</Text>
                   </TouchableOpacity>
                 </TouchableOpacity>
-              ))}
-            </View>
-          )}
+              ))
+            )}
+          </View>
 
           <TouchableOpacity style={[styles.langButton, { backgroundColor: '#666', marginTop: 20 }]} onPress={() => setScreen('Dashboard')}>
             <Text style={styles.langTextActive}>إغلاق الخزنة بأمان</Text>
