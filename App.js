@@ -374,13 +374,16 @@ export default function App() {
     }
   };
 
-  // === دالة إضافة صور/فيديوهات للخزنة ===
-  // القاعدة الذهبية: ما نلمس/نحذف الملف الأصلي من الاستديو أبداً
-  // إلا بعد ما نتأكد 100% إنه النسخة بالخزنة انحفظت بنجاح وحجمها أكبر من صفر
+  // =========================================================================
+  // === منطق الخزنة المعاد بناؤه: التقاط صورة/فيديو، معالجة، حفظ، إخفاء ===
+  // =========================================================================
+
+  // زر الصور: نطلب base64 من المنتقي مباشرة عشان نكتب الملف بأيدينا
+  // ونضمن إنه البيانات صحيحة 100% قبل ما نمررها لأي معالجة
   const handlePickImage = async () => {
     const libPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!libPermission.granted) {
-      alert('لازم تسمحي للتطبيق بالوصول لصور وفيديوهات جهازكِ عشان تقدري تخزنيها بالخزنة 🔐');
+      alert('لازم تسمحي للتطبيق بالوصول لصور جهازكِ عشان تقدري تخزنيها بالخزنة 🔐');
       return;
     }
     const mediaPermission = await MediaLibrary.requestPermissionsAsync();
@@ -389,15 +392,61 @@ export default function App() {
       return;
     }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All, // صور + فيديو معاً
-      quality: 1,
-      allowsMultipleSelection: true,
-      selectionLimit: 0,
-    });
+    let result;
+    try {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 1,
+        base64: true,
+        allowsMultipleSelection: true,
+        selectionLimit: 0,
+      });
+    } catch (e) {
+      console.error('خطأ بفتح معرض الصور:', e);
+      alert('تعذر فتح معرض الصور، حاولي مجدداً 🙏');
+      return;
+    }
 
     if (result.canceled || !result.assets || result.assets.length === 0) return;
+    await processPickedAssets(result.assets, false);
+  };
 
+  // زر الفيديو: منفصل تماماً بمنتقي خاص بالفيديو فقط، عشان بعض الأجهزة
+  // (خصوصاً MIUI/Poco) ما بتظهر خيار الفيديو جوا منتقي "الكل" الموحّد
+  const handlePickVideo = async () => {
+    const libPermission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!libPermission.granted) {
+      alert('لازم تسمحي للتطبيق بالوصول لفيديوهات جهازكِ عشان تقدري تخزنيها بالخزنة 🔐');
+      return;
+    }
+    const mediaPermission = await MediaLibrary.requestPermissionsAsync();
+    if (!mediaPermission.granted) {
+      alert('لازم تسمحي للتطبيق بإدارة الاستديو عشان تختفي الملفات منه فعلياً 🔐');
+      return;
+    }
+
+    let result;
+    try {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        quality: 1,
+        allowsMultipleSelection: true,
+        selectionLimit: 0,
+      });
+    } catch (e) {
+      console.error('خطأ بفتح معرض الفيديوهات:', e);
+      alert('تعذر فتح معرض الفيديوهات، حاولي مجدداً 🙏');
+      return;
+    }
+
+    if (result.canceled || !result.assets || result.assets.length === 0) return;
+    await processPickedAssets(result.assets, true);
+  };
+
+  // الدالة المشتركة: نسخ الملف فعلياً لمجلد الخزنة الخاص بالتطبيق،
+  // التأكد الصارم من سلامته، ثم محاولة إخفاء الأصلي من الاستديو
+  // (مع إخبار المستخدمة بصدق إذا فشلت محاولة الإخفاء بسبب قيود أندرويد)
+  const processPickedAssets = async (assets, forceVideo) => {
     try {
       await FileSystem.makeDirectoryAsync(FileSystem.documentDirectory + 'vault', { intermediates: true });
     } catch (dirErr) {
@@ -406,37 +455,50 @@ export default function App() {
 
     const newEntries = [];
     let failedCount = 0;
+    let notHiddenCount = 0;
 
-    for (const asset of result.assets) {
+    for (const asset of assets) {
       try {
-        const isVideo = asset.type === 'video';
-        let sourceUri = asset.uri;
+        const isVideo = forceVideo || asset.type === 'video' || (asset.mimeType || '').startsWith('video/');
+        let destPath;
 
-        // المعالجة (تصغير الأبعاد وضغط الجودة) تنطبق على الصور فقط
-        if (!isVideo) {
+        if (isVideo) {
+          const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + '.mp4';
+          destPath = FileSystem.documentDirectory + 'vault/' + fileName;
+          await FileSystem.copyAsync({ from: asset.uri, to: destPath });
+        } else {
+          // === النقطة الحرجة: بدل ما نثق بـ asset.uri (ممكن يكون content:// غير مضمون) ===
+          // منكتب البيانات الخام (base64) يلي رجّعها المنتقي بأيدينا لملف مؤقت بالكاش،
+          // وبعدين منمرر هاد الملف المضمون لـ ImageManipulator
+          if (!asset.base64) {
+            throw new Error('لم يتم استلام بيانات الصورة الخام من المعرض');
+          }
+          const tempPath = FileSystem.cacheDirectory + 'temp_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + '.jpg';
+          await FileSystem.writeAsStringAsync(tempPath, asset.base64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
           const manipulated = await ImageManipulator.manipulateAsync(
-            asset.uri,
+            tempPath,
             [{ resize: { width: 1080 } }],
             { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
           );
-          sourceUri = manipulated.uri;
+
+          const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + '.jpg';
+          destPath = FileSystem.documentDirectory + 'vault/' + fileName;
+          await FileSystem.copyAsync({ from: manipulated.uri, to: destPath });
+
+          try { await FileSystem.deleteAsync(tempPath, { idempotent: true }); } catch (cleanupErr) {}
         }
 
-        const ext = isVideo ? '.mp4' : '.jpg';
-        const fileName = 'vault_' + Date.now() + '_' + Math.floor(Math.random() * 100000) + ext;
-        const destPath = FileSystem.documentDirectory + 'vault/' + fileName;
-
-        await FileSystem.copyAsync({ from: sourceUri, to: destPath });
-
-        // === تأكيد حقيقي وصارم قبل أي حذف ===
-        // نتحقق إنه الملف موجود فعلياً وحجمه أكبر من صفر، وإلا نعتبرها فشلت
-        // ونوقف فوراً دون أي مساس بالملف الأصلي بالاستديو
+        // === تأكيد حقيقي وصارم قبل أي حذف من الاستديو ===
         const info = await FileSystem.getInfoAsync(destPath);
         if (!info.exists || info.size === 0) {
           throw new Error('الملف المنسوخ فاضي أو غير موجود');
         }
 
-        // فقط الآن، بعد التأكد التام من نجاح النسخة، نخفي الأصلية من الاستديو
+        // فقط الآن، بعد التأكد التام من نجاح النسخة، نحاول إخفاء الأصلية من الاستديو
+        // ملاحظة: هاد ممكن يفشل على بعض أجهزة أندرويد 11+ بسبب قيود النظام نفسه
         let hiddenFromGallery = false;
         try {
           if (asset.assetId) {
@@ -446,6 +508,7 @@ export default function App() {
         } catch (delErr) {
           console.log('تعذر إخفاء الملف الأصلي من الاستديو:', delErr);
         }
+        if (!hiddenFromGallery) notHiddenCount++;
 
         newEntries.push({ uri: destPath, type: isVideo ? 'video' : 'image', hiddenFromGallery });
       } catch (e) {
@@ -455,13 +518,18 @@ export default function App() {
     }
 
     if (newEntries.length > 0) {
-      const newPhotos = [...vaultPhotos, ...newEntries];
-      setVaultPhotos(newPhotos);
-      saveVaultToStorage(vaultPassword, newPhotos, savedNotes);
+      setVaultPhotos(prev => {
+        const updated = [...prev, ...newEntries];
+        saveVaultToStorage(vaultPassword, updated, savedNotes);
+        return updated;
+      });
     }
 
     if (failedCount > 0) {
       alert('تعذر حفظ ' + failedCount + ' ملف بشكل سليم، الرجاء إعادة المحاولة 🙏 (الملفات الأصلية بقيت بأمان بالاستديو ولم تُمس)');
+    }
+    if (notHiddenCount > 0) {
+      alert('تم حفظ الملفات بأمان داخل الخزنة ✅، لكن ' + notHiddenCount + ' ملف قد يبقى ظاهراً بالاستديو أيضاً بسبب قيود نظام أندرويد على هذا الجهاز تحديداً');
     }
   };
 
@@ -494,7 +562,6 @@ export default function App() {
   };
 
   // === دالة حذف عنصر من الخزنة (صورة/فيديو/صوت) ===
-  // لو كان مخفياً عن الاستديو، نرجعه يظهر فيه من جديد قبل حذفه من الخزنة
   const handleDeletePhoto = async (photo) => {
     try {
       if (photo.hiddenFromGallery && photo.type !== 'audio') {
@@ -846,7 +913,11 @@ export default function App() {
           {vaultTab === 'photos' ? (
             <View style={{ width: '100%', alignItems: 'center' }}>
               <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%' }]} onPress={handlePickImage}>
-                <Text style={styles.langTextActive}>📷 إضافة صورة أو فيديو (يمكن اختيار أكثر من ملف)</Text>
+                <Text style={styles.langTextActive}>📷 إضافة صورة</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%', marginTop: 8 }]} onPress={handlePickVideo}>
+                <Text style={styles.langTextActive}>🎬 إضافة فيديو</Text>
               </TouchableOpacity>
 
               <TouchableOpacity style={[styles.langButton, styles.arabicButton, { width: '90%', marginTop: 8 }]} onPress={handlePickAudio}>
@@ -871,7 +942,11 @@ export default function App() {
                         </TouchableOpacity>
                       ) : (
                         <TouchableOpacity onPress={() => setViewerPhotoUri(photo.uri)}>
-                          <Image source={{ uri: photo.uri }} style={styles.photoThumb} />
+                          <Image
+                            source={{ uri: photo.uri }}
+                            style={styles.photoThumb}
+                            onError={(e) => console.log('فشل تحميل الصورة:', photo.uri, e.nativeEvent.error)}
+                          />
                         </TouchableOpacity>
                       )}
                       <TouchableOpacity style={styles.deletePhotoBtn} onPress={() => handleDeletePhoto(photo)}>
